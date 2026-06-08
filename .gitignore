@@ -1,0 +1,7 @@
+node_modules
+dist
+.vite
+.env
+*.timestamp*.js
+*.local
+.DS_Store
