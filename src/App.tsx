@@ -88,8 +88,8 @@ export function App() {
   useEffect(() => {
     fetchFileTree().then(setRepoTree).catch(console.error);
     refreshHealth().then((h) => {
-      // On first load, open setup dialog if OpenAI key is missing everywhere
-      if (!canUseOpenAI(h)) setKeySetupOpen(true);
+      // Open setup dialog only if no key exists anywhere (server env OR browser storage)
+      if (!canUseOpenAI(h) && !hasOpenAIKey()) setKeySetupOpen(true);
     });
   }, [refreshHealth]);
 
@@ -299,7 +299,7 @@ export function App() {
             onSelectFile={(path) => handleSelectFile(path, fileSource)}
             fileSource={fileSource}
             onSourceChange={handleSourceChange}
-            hasGithubToken={canUseGitHub(health ?? { provider: "", openai: { envConfigured: false, headerConfigured: false }, github: { envConfigured: false, headerConfigured: false } })}
+            hasGithubToken={canUseGitHub(health ?? { provider: "", openai: { envConfigured: false, headerConfigured: false }, github: { envConfigured: false, headerConfigured: false } }) || hasGitHubToken()}
           />
         </aside>
 
@@ -333,8 +333,8 @@ export function App() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => setKeySetupOpen(true)}
-            className="flex items-center gap-2.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            title="Configure API keys"
+            className="cursor-pointer flex items-center gap-2.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              title="Configure API keys"
           >
             <KeyStatusBadge label="OpenAI" source={openaiSource} />
             <KeyStatusBadge label="GitHub" source={githubSource} />
@@ -342,7 +342,7 @@ export function App() {
           {hasBrowserKeys && (
             <button
               onClick={handleForgetKeys}
-              className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition hover:border-destructive/40 hover:text-destructive"
+              className="cursor-pointer rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition hover:border-destructive/40 hover:text-destructive"
               title="Clear stored API keys from browser storage"
             >
               Forget keys

@@ -173,7 +173,7 @@ export function KeySetupDialog({ open, onClose, onKeysSaved, onContinueDemo }: K
             <button
               type="button"
               onClick={handleForget}
-              className="rounded-lg border border-destructive/40 px-4 py-2 text-sm font-medium text-destructive transition hover:bg-destructive/10"
+              className="cursor-pointer rounded-lg border border-destructive/40 px-4 py-2 text-sm font-medium text-destructive transition hover:bg-destructive/10"
             >
               Forget my keys
             </button>
@@ -182,7 +182,7 @@ export function KeySetupDialog({ open, onClose, onKeysSaved, onContinueDemo }: K
           <button
             type="button"
             onClick={onContinueDemo}
-            className="rounded-lg border border-border px-4 py-2 text-sm font-medium transition hover:bg-muted"
+            className="cursor-pointer rounded-lg border border-border px-4 py-2 text-sm font-medium transition hover:bg-muted"
           >
             Continue with demo
           </button>
@@ -190,7 +190,7 @@ export function KeySetupDialog({ open, onClose, onKeysSaved, onContinueDemo }: K
             type="button"
             onClick={handleSave}
             disabled={!openaiKey.trim()}
-            className="rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+            className="cursor-pointer rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Save keys
           </button>

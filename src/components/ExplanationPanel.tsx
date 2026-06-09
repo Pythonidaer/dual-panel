@@ -103,7 +103,7 @@ export function ExplanationPanel({
             {onNeedApiKey && (
               <button
                 onClick={onNeedApiKey}
-                className="mt-1 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                className="cursor-pointer mt-1 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
               >
                 Configure API keys
               </button>
