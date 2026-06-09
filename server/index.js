@@ -116,8 +116,11 @@ app.post("/api/explain-file", async (req, res) => {
     return;
   }
 
-  if (LLM_PROVIDER === "openai") {
-    const apiKey = resolveOpenAIKey(req);
+  // Use OpenAI if the provider is configured for it, OR if the user supplied
+  // their own key via the X-OpenAI-Key header (regardless of LLM_PROVIDER env).
+  const openaiApiKey = resolveOpenAIKey(req);
+  if (LLM_PROVIDER === "openai" || openaiApiKey) {
+    const apiKey = openaiApiKey;
     if (!apiKey) {
       res.status(401).json({
         error: "OPENAI_KEY_MISSING",
@@ -296,6 +299,13 @@ async function buildTree(dir) {
 }
 
 app.get("/api/file-tree", async (_req, res) => {
+  // On Vercel (serverless) there is no meaningful local workspace to browse —
+  // the Lambda filesystem is the build bundle, not a user's project.
+  // Return an empty tree; users can browse GitHub repos instead.
+  if (process.env.VERCEL) {
+    res.json({ tree: [] });
+    return;
+  }
   try {
     const tree = await buildTree(WORKSPACE_ROOT);
     res.json({ tree });
@@ -553,9 +563,10 @@ app.get("/api/github/file-content", async (req, res) => {
   }
 });
 
-// In production (Railway / local `npm start`), serve the built SPA
+// Serve the built SPA for Railway / local `npm start`.
+// On Vercel the CDN serves dist/ directly — no need to load this middleware in the Lambda.
 const DIST = join(WORKSPACE_ROOT, "dist");
-if (existsSync(DIST)) {
+if (!process.env.VERCEL && existsSync(DIST)) {
   app.use(express.static(DIST));
   app.get("*", (_req, res) => res.sendFile(join(DIST, "index.html")));
 }
