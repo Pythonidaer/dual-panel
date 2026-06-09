@@ -356,7 +356,6 @@ export function App() {
         open={keySetupOpen}
         onClose={() => setKeySetupOpen(false)}
         onKeysSaved={handleKeysSaved}
-        onContinueDemo={() => setKeySetupOpen(false)}
       />
     </div>
   );

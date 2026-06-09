@@ -7,18 +7,16 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { saveKeys, clearKeys, getStoredKeys, hasOpenAIKey, type KeyStorageMode } from "@/lib/client/keys";
+import { saveKeys, clearKeys, hasOpenAIKey, type KeyStorageMode } from "@/lib/client/keys";
 import { cn } from "@/lib/utils";
 
 interface KeySetupDialogProps {
   open: boolean;
   onClose: () => void;
   onKeysSaved: () => void;
-  onContinueDemo: () => void;
 }
 
-export function KeySetupDialog({ open, onClose, onKeysSaved, onContinueDemo }: KeySetupDialogProps) {
-  const existing = getStoredKeys();
+export function KeySetupDialog({ open, onClose, onKeysSaved }: KeySetupDialogProps) {
   const [openaiKey, setOpenaiKey] = useState("");
   const [githubToken, setGithubToken] = useState("");
   const [storageMode, setStorageMode] = useState<KeyStorageMode>("localStorage");
@@ -90,8 +88,7 @@ export function KeySetupDialog({ open, onClose, onKeysSaved, onContinueDemo }: K
           {/* GitHub token */}
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-foreground">
-              GitHub Personal Access Token{" "}
-              <span className="text-muted-foreground font-normal">(optional)</span>
+              GitHub Personal Access Token <span className="text-destructive">*</span>
             </label>
             <input
               type="password"
@@ -102,7 +99,7 @@ export function KeySetupDialog({ open, onClose, onKeysSaved, onContinueDemo }: K
               autoComplete="off"
             />
             <p className="text-xs text-muted-foreground">
-              Required only for browsing your private or authenticated repos.
+              A GitHub token is needed for browsing your repos.
             </p>
           </div>
 
@@ -179,13 +176,6 @@ export function KeySetupDialog({ open, onClose, onKeysSaved, onContinueDemo }: K
             </button>
           )}
           <div className="flex-1" />
-          <button
-            type="button"
-            onClick={onContinueDemo}
-            className="cursor-pointer rounded-lg border border-border px-4 py-2 text-sm font-medium transition hover:bg-muted"
-          >
-            Continue with demo
-          </button>
           <button
             type="button"
             onClick={handleSave}
