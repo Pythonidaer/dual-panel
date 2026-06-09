@@ -39,7 +39,7 @@ app.use(express.json({ limit: "2mb" }));
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-OpenAI-Key, X-GitHub-Token");
   if (req.method === "OPTIONS") {
     res.sendStatus(204);
     return;
@@ -92,6 +92,22 @@ function extractExplanationArray(parsed) {
   return null;
 }
 
+// ── Key resolution helpers ────────────────────────────────────────────────────
+
+/** Read user-supplied key from request header, fall back to server env var. */
+const resolveOpenAIKey = (req) =>
+  req.headers["x-openai-key"]?.trim() || process.env.OPENAI_API_KEY?.trim();
+
+/** Read user-supplied GitHub token from request header, fall back to server env var. */
+const resolveGitHubToken = (req) =>
+  req.headers["x-github-token"]?.trim() || process.env.GITHUB_TOKEN?.trim();
+
+/** Redact a secret for safe logging — shows only the first and last 4 characters. */
+function redactSecret(value) {
+  if (!value) return "(none)";
+  return `${value.slice(0, 4)}...${value.slice(-4)}`;
+}
+
 app.post("/api/explain-file", async (req, res) => {
   const { filename, path: filePath, language, content } = req.body ?? {};
 
@@ -101,9 +117,12 @@ app.post("/api/explain-file", async (req, res) => {
   }
 
   if (LLM_PROVIDER === "openai") {
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = resolveOpenAIKey(req);
     if (!apiKey) {
-      res.status(402).json({ error: "OpenAI API key is not configured on the server." });
+      res.status(401).json({
+        error: "OPENAI_KEY_MISSING",
+        message: "Add your OpenAI API key to explain files, or continue with demo mode.",
+      });
       return;
     }
 
@@ -160,7 +179,7 @@ app.post("/api/explain-file", async (req, res) => {
 
     const explanationArr = extractExplanationArray(parsed);
     if (!explanationArr) {
-      console.error("[OpenAI] Unexpected response shape. rawText:", rawText.slice(0, 500));
+      console.error("[OpenAI] Unexpected response shape. rawText (first 200 chars):", rawText.slice(0, 200));
       res.status(422).json({ error: "Unexpected response shape from OpenAI.", rawText });
       return;
     }
@@ -232,7 +251,7 @@ ${numberedContent}`;
 
   const explanationArr = extractExplanationArray(parsed);
   if (!explanationArr) {
-    console.error("[Ollama] Unexpected response shape. rawText:", rawText.slice(0, 500));
+    console.error("[Ollama] Unexpected response shape. rawText (first 200 chars):", rawText.slice(0, 200));
     res.status(422).json({
       error: "Unexpected response shape from Ollama.",
       rawText,
@@ -241,20 +260,6 @@ ${numberedContent}`;
   }
 
   res.json({ explanation: explanationArr, rawText });
-});
-
-app.post("/api/set-api-key", (req, res) => {
-  if (LLM_PROVIDER !== "openai") {
-    res.status(400).json({ error: "Server is not configured to use OpenAI (LLM_PROVIDER != openai)." });
-    return;
-  }
-  const { apiKey } = req.body ?? {};
-  if (!apiKey || typeof apiKey !== "string" || !apiKey.trim()) {
-    res.status(400).json({ error: "apiKey is required." });
-    return;
-  }
-  process.env.OPENAI_API_KEY = apiKey.trim();
-  res.json({ ok: true });
 });
 
 // Directories and files to never include in the tree
@@ -321,26 +326,24 @@ app.get("/api/file-content", async (req, res) => {
   }
 });
 
-app.get("/api/health", (_req, res) => {
-  const hasGithubToken = !!(process.env.GITHUB_TOKEN?.trim());
-  if (LLM_PROVIDER === "openai") {
-    const hasKey = !!(process.env.OPENAI_API_KEY?.trim());
-    res.json({
-      ok: hasKey,
-      provider: "openai",
-      model: OPENAI_MODEL,
-      hasGithubToken,
-      ...(hasKey ? {} : { reason: "missing_api_key" }),
-    });
-    return;
-  }
-  res.json({ ok: true, provider: "ollama", model: OLLAMA_MODEL, ollamaBase: OLLAMA_BASE_URL, hasGithubToken });
+app.get("/api/health", (req, res) => {
+  const openaiEnv = !!(process.env.OPENAI_API_KEY?.trim());
+  const openaiHeader = !!(req.headers["x-openai-key"]?.trim());
+  const githubEnv = !!(process.env.GITHUB_TOKEN?.trim());
+  const githubHeader = !!(req.headers["x-github-token"]?.trim());
+
+  res.json({
+    provider: LLM_PROVIDER,
+    model: LLM_PROVIDER === "openai" ? OPENAI_MODEL : OLLAMA_MODEL,
+    openai: { envConfigured: openaiEnv, headerConfigured: openaiHeader },
+    github: { envConfigured: githubEnv, headerConfigured: githubHeader },
+  });
 });
 
 // ── GitHub API helpers ────────────────────────────────────────────────────────
 
-const GITHUB_HEADERS = () => ({
-  Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+const githubHeaders = (token) => ({
+  Authorization: `Bearer ${token}`,
   "User-Agent": "codescribe",
   Accept: "application/vnd.github+json",
 });
@@ -400,17 +403,17 @@ function buildTreeFromPaths(paths) {
 }
 
 // GET /api/github/repos — list authenticated user's repos
-app.get("/api/github/repos", async (_req, res) => {
-  const token = process.env.GITHUB_TOKEN?.trim();
+app.get("/api/github/repos", async (req, res) => {
+  const token = resolveGitHubToken(req);
   if (!token) {
-    res.status(401).json({ error: "GITHUB_TOKEN is not configured on the server." });
+    res.status(401).json({ error: "GitHub token is not configured. Add your GitHub PAT via the key setup dialog." });
     return;
   }
 
   try {
     const ghRes = await fetch(
       "https://api.github.com/user/repos?per_page=100&sort=updated",
-      { headers: GITHUB_HEADERS() }
+      { headers: githubHeaders(token) }
     );
 
     if (!ghRes.ok) {
@@ -436,9 +439,9 @@ app.get("/api/github/repos", async (_req, res) => {
 
 // GET /api/github/file-tree?repo=owner/name — recursive file tree for a repo
 app.get("/api/github/file-tree", async (req, res) => {
-  const token = process.env.GITHUB_TOKEN?.trim();
+  const token = resolveGitHubToken(req);
   if (!token) {
-    res.status(401).json({ error: "GITHUB_TOKEN is not configured." });
+    res.status(401).json({ error: "GitHub token is not configured. Add your GitHub PAT via the key setup dialog." });
     return;
   }
 
@@ -452,7 +455,7 @@ app.get("/api/github/file-tree", async (req, res) => {
     // Use HEAD which follows the default branch
     const ghRes = await fetch(
       `https://api.github.com/repos/${repoParam}/git/trees/HEAD?recursive=1`,
-      { headers: GITHUB_HEADERS() }
+      { headers: githubHeaders(token) }
     );
 
     if (!ghRes.ok) {
@@ -483,9 +486,9 @@ app.get("/api/github/file-tree", async (req, res) => {
 
 // GET /api/github/file-content?repo=owner/name&path=src/foo.ts
 app.get("/api/github/file-content", async (req, res) => {
-  const token = process.env.GITHUB_TOKEN?.trim();
+  const token = resolveGitHubToken(req);
   if (!token) {
-    res.status(401).json({ error: "GITHUB_TOKEN is not configured." });
+    res.status(401).json({ error: "GitHub token is not configured. Add your GitHub PAT via the key setup dialog." });
     return;
   }
 
@@ -509,7 +512,7 @@ app.get("/api/github/file-content", async (req, res) => {
   try {
     const ghRes = await fetch(
       `https://api.github.com/repos/${repoParam}/contents/${filePath}`,
-      { headers: GITHUB_HEADERS() }
+      { headers: githubHeaders(token) }
     );
 
     if (!ghRes.ok) {

@@ -48,7 +48,7 @@ src/
     FileBrowser.tsx        — sidebar tree + source dropdown (Local / GitHub repos)
     token-colors.ts        — maps TokenType → text-tok-* Tailwind class
   hooks/
-    useDebouncedValue.ts   — the demo file shown on first load
+    useDebouncedValue.ts   — kept as a potential future demo file; not shown on first load
   lib/
     types.ts               — all shared TypeScript types (incl. FileSource, GitHubRepo)
     demo-data.ts           — hand-tokenized demo + DEMO_FILE constant
@@ -259,6 +259,7 @@ Build this **after** TODO #1 (user keys) is shipped, since we'll want to evaluat
 ## Current Dev State
 
 - App renders at `http://localhost:3000`
+- On first load, the app starts with the local file tree loaded and no file selected (no demo file auto-displayed)
 - File tree is live — fetched from `GET /api/file-tree` on startup (local) or `GET /api/github/file-tree` (GitHub)
 - Source dropdown in sidebar — "Local workspace" + all GitHub repos (loaded via `GITHUB_TOKEN`)
 - GitHub file browsing works end-to-end: select repo → browse tree → click file → LLM explanation

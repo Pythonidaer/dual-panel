@@ -6,17 +6,19 @@ import type {
   RawExplanationLine,
   TokenType,
 } from "../types";
+import { getApiHeaders } from "@/lib/client/keys";
 
 /**
- * Calls the server-side Ollama explanation endpoint.
+ * Calls the server-side explanation endpoint.
  * In dev, Vite proxies /api -> :3001. In production, the server serves the SPA.
+ * Injects stored browser keys as request headers so they reach the server per-request.
  */
 export async function explainFile(
   file: ExplainFileRequest,
 ): Promise<ExplainFileResponse> {
   const res = await fetch("/api/explain-file", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getApiHeaders() },
     body: JSON.stringify(file),
   });
 

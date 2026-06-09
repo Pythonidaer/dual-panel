@@ -1,8 +1,9 @@
 import type { GitHubRepo, RepoTreeNode } from "../types";
+import { getApiHeaders } from "@/lib/client/keys";
 
 /** Fetch the list of GitHub repos for the authenticated user. */
 export async function listGitHubRepos(): Promise<GitHubRepo[]> {
-  const res = await fetch("/api/github/repos");
+  const res = await fetch("/api/github/repos", { headers: getApiHeaders() });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error ?? `GitHub repos fetch failed (${res.status})`);
@@ -13,7 +14,7 @@ export async function listGitHubRepos(): Promise<GitHubRepo[]> {
 
 /** Fetch the nested file tree for a given repo (owner/name). */
 export async function getGitHubRepoTree(repoFullName: string): Promise<RepoTreeNode[]> {
-  const res = await fetch(`/api/github/file-tree?repo=${encodeURIComponent(repoFullName)}`);
+  const res = await fetch(`/api/github/file-tree?repo=${encodeURIComponent(repoFullName)}`, { headers: getApiHeaders() });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error ?? `GitHub file-tree fetch failed (${res.status})`);
@@ -28,7 +29,8 @@ export async function fetchGitHubFileContent(
   filePath: string
 ): Promise<{ content: string; language: string; filename: string; truncated?: boolean } | null> {
   const res = await fetch(
-    `/api/github/file-content?repo=${encodeURIComponent(repoFullName)}&path=${encodeURIComponent(filePath)}`
+    `/api/github/file-content?repo=${encodeURIComponent(repoFullName)}&path=${encodeURIComponent(filePath)}`,
+    { headers: getApiHeaders() },
   );
 
   const data = await res.json().catch(() => ({}));

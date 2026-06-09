@@ -2,22 +2,63 @@ import { useState, useCallback, useEffect } from "react";
 import { CodePanel } from "./components/CodePanel";
 import { ExplanationPanel } from "./components/ExplanationPanel";
 import { FileBrowser } from "./components/FileBrowser";
+import { KeySetupDialog } from "./components/KeySetupDialog";
 import { DEMO_FILE, code as DEMO_CODE, explanations as DEMO_EXPLANATIONS, fileName as DEMO_FILE_NAME, filePath as DEMO_FILE_PATH } from "./lib/demo-data";
 import type { CodeLine, Explanation, FileSource, RepoTreeNode } from "./lib/types";
 import { tokenizeContent } from "./lib/tokenizer";
 import { fetchFileContent, fetchFileTree } from "./lib/api/files";
 import { explainFile, rawToExplanations } from "./lib/api/explain";
 import { getGitHubRepoTree, fetchGitHubFileContent } from "./lib/api/repos";
+import { getApiHeaders, clearKeys, hasOpenAIKey, hasGitHubToken } from "./lib/client/keys";
 import { cn } from "./lib/utils";
 
-async function fetchHealth(): Promise<{ ok: boolean; provider?: string; reason?: string; hasGithubToken?: boolean }> {
+// ── Health endpoint types ─────────────────────────────────────────────────────
+
+interface HealthResponse {
+  provider: string;
+  model?: string;
+  openai: { envConfigured: boolean; headerConfigured: boolean };
+  github: { envConfigured: boolean; headerConfigured: boolean };
+}
+
+async function fetchHealth(): Promise<HealthResponse> {
   try {
-    const res = await fetch("/api/health");
-    return res.ok ? res.json() : { ok: false };
+    const res = await fetch("/api/health", { headers: getApiHeaders() });
+    if (!res.ok) return { provider: "unknown", openai: { envConfigured: false, headerConfigured: false }, github: { envConfigured: false, headerConfigured: false } };
+    return res.json() as Promise<HealthResponse>;
   } catch {
-    return { ok: false };
+    return { provider: "unknown", openai: { envConfigured: false, headerConfigured: false }, github: { envConfigured: false, headerConfigured: false } };
   }
 }
+
+function canUseOpenAI(h: HealthResponse) {
+  return h.openai.envConfigured || h.openai.headerConfigured;
+}
+
+function canUseGitHub(h: HealthResponse) {
+  return h.github.envConfigured || h.github.headerConfigured;
+}
+
+// ── Key source badge labels ───────────────────────────────────────────────────
+
+type OpenAISource = "browser" | "server" | "missing";
+type GitHubSource = "browser" | "server" | "optional" | "missing";
+
+function openAISourceLabel(h: HealthResponse | null): OpenAISource {
+  if (!h) return "missing";
+  if (h.openai.headerConfigured) return "browser";
+  if (h.openai.envConfigured) return "server";
+  return "missing";
+}
+
+function gitHubSourceLabel(h: HealthResponse | null): GitHubSource {
+  if (!h) return "optional";
+  if (h.github.headerConfigured) return "browser";
+  if (h.github.envConfigured) return "server";
+  return "optional";
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 const LEGEND = [
   { label: "Keyword",  dot: "bg-tok-keyword"  },
@@ -28,21 +69,29 @@ const LEGEND = [
   { label: "Comment",  dot: "bg-tok-comment"  },
 ] as const;
 
+// ── App ───────────────────────────────────────────────────────────────────────
+
 export function App() {
   const [repoTree, setRepoTree] = useState<RepoTreeNode[]>([]);
-  const [requiresApiKey, setRequiresApiKey] = useState(false);
-  const [hasGithubToken, setHasGithubToken] = useState(false);
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [keySetupOpen, setKeySetupOpen] = useState(false);
 
   // Track which source (local or github repo) is active
   const [fileSource, setFileSource] = useState<FileSource>({ kind: "local" });
 
+  const refreshHealth = useCallback(async () => {
+    const h = await fetchHealth();
+    setHealth(h);
+    return h;
+  }, []);
+
   useEffect(() => {
     fetchFileTree().then(setRepoTree).catch(console.error);
-    fetchHealth().then((h) => {
-      if (!h.ok && h.reason === "missing_api_key") setRequiresApiKey(true);
-      if (h.hasGithubToken) setHasGithubToken(true);
+    refreshHealth().then((h) => {
+      // On first load, open setup dialog if OpenAI key is missing everywhere
+      if (!canUseOpenAI(h)) setKeySetupOpen(true);
     });
-  }, []);
+  }, [refreshHealth]);
 
   const [activeCodeLines, setActiveCodeLines] = useState<number[]>([]);
   const [hoveredCodeLine, setHoveredCodeLine] = useState<number | null>(null);
@@ -129,7 +178,14 @@ export function App() {
       const result = await explainFile({ filename, path, language, content });
       setExplanations(rawToExplanations(result.explanation, lines.length));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load file.");
+      const message = err instanceof Error ? err.message : "Failed to load file.";
+      // Surface a key-setup prompt for missing key errors
+      if (message === "OPENAI_KEY_MISSING") {
+        setKeySetupOpen(true);
+        setError(null);
+      } else {
+        setError(message);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -166,19 +222,39 @@ export function App() {
   const handleScrollToLine = useCallback((lineNo: number) => {
     document
       .getElementById(`code-line-${lineNo}`)
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
-  const handleApiKeySet = useCallback(async () => {
-    const h = await fetchHealth();
-    if (h.ok) {
-      setRequiresApiKey(false);
-      if (selectedPath) handleSelectFile(selectedPath, fileSource);
+  const handleKeysSaved = useCallback(async () => {
+    setKeySetupOpen(false);
+    const h = await refreshHealth();
+    setError(null);
+    // Retry the current file if one is selected and we can now explain
+    if (selectedPath && canUseOpenAI(h)) {
+      handleSelectFile(selectedPath, fileSource);
     }
-  }, [selectedPath, handleSelectFile, fileSource]);
+  }, [selectedPath, handleSelectFile, fileSource, refreshHealth]);
+
+  const handleForgetKeys = useCallback(async () => {
+    clearKeys();
+    // Reset all file/panel state back to initial so the idle/configure screen shows
+    setSelectedPath("");
+    setCodeLines([]);
+    setCodeFileName("");
+    setCodeFilePath("");
+    setExplanations([]);
+    setError(null);
+    setFileSource({ kind: "local" });
+    fetchFileTree().then(setRepoTree).catch(console.error);
+    await refreshHealth();
+  }, [refreshHealth]);
 
   const currentRepoName =
     fileSource.kind === "github" ? fileSource.repo : "codescribe";
+
+  const openaiSource = openAISourceLabel(health);
+  const githubSource = gitHubSourceLabel(health);
+  const hasBrowserKeys = hasOpenAIKey() || hasGitHubToken();
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
@@ -213,7 +289,7 @@ export function App() {
       </header>
 
       {/* ── Main ── */}
-      <main className="mx-auto flex w-full max-w-[1440px] flex-1 min-h-0 gap-6 px-10 pb-8">
+      <main className="mx-auto flex w-full max-w-[1440px] flex-1 min-h-0 gap-6 px-10 pb-2">
         {/* Sidebar */}
         <aside className="w-52 shrink-0 h-full">
           <FileBrowser
@@ -223,7 +299,7 @@ export function App() {
             onSelectFile={(path) => handleSelectFile(path, fileSource)}
             fileSource={fileSource}
             onSourceChange={handleSourceChange}
-            hasGithubToken={hasGithubToken}
+            hasGithubToken={canUseGitHub(health ?? { provider: "", openai: { envConfigured: false, headerConfigured: false }, github: { envConfigured: false, headerConfigured: false } })}
           />
         </aside>
 
@@ -244,16 +320,64 @@ export function App() {
             isLoading={isLoading}
             error={error}
             onRetry={handleRetry}
-            requiresApiKey={requiresApiKey}
-            onApiKeySet={handleApiKeySet}
+            onNeedApiKey={() => setKeySetupOpen(true)}
           />
         </div>
       </main>
 
       {/* ── Footer ── */}
-      <footer className="pb-6 text-center text-xs text-muted-foreground/80">
-        Hover a line or a sentence — matching colors link the syntax to its meaning.
+      <footer className="mx-auto w-full max-w-[1440px] px-10 pt-1 pb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground/70">
+          Hover a line or a sentence — matching colors link the syntax to its meaning.
+        </p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setKeySetupOpen(true)}
+            className="flex items-center gap-2.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            title="Configure API keys"
+          >
+            <KeyStatusBadge label="OpenAI" source={openaiSource} />
+            <KeyStatusBadge label="GitHub" source={githubSource} />
+          </button>
+          {hasBrowserKeys && (
+            <button
+              onClick={handleForgetKeys}
+              className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition hover:border-destructive/40 hover:text-destructive"
+              title="Clear stored API keys from browser storage"
+            >
+              Forget keys
+            </button>
+          )}
+        </div>
       </footer>
+
+      {/* ── Key setup dialog ── */}
+      <KeySetupDialog
+        open={keySetupOpen}
+        onClose={() => setKeySetupOpen(false)}
+        onKeysSaved={handleKeysSaved}
+        onContinueDemo={() => setKeySetupOpen(false)}
+      />
     </div>
+  );
+}
+
+// ── Key status badge ──────────────────────────────────────────────────────────
+
+function KeyStatusBadge({ label, source }: { label: string; source: OpenAISource | GitHubSource }) {
+  const colorMap: Record<string, string> = {
+    browser: "bg-primary/15 text-primary",
+    server:  "bg-muted text-muted-foreground",
+    missing: "bg-destructive/10 text-destructive",
+    optional: "bg-muted text-muted-foreground/60",
+  };
+
+  return (
+    <span className="flex items-center gap-1">
+      <span className="text-muted-foreground/50">{label}:</span>
+      <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none", colorMap[source] ?? colorMap.optional)}>
+        {source}
+      </span>
+    </span>
   );
 }
