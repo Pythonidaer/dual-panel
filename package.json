@@ -55,7 +55,6 @@
     "react-hook-form": "^7.78.0",
     "react-resizable-panels": "^4.11.2",
     "recharts": "^3.8.1",
-    "serverless-http": "^4.0.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.0",
